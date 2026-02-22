@@ -61,8 +61,103 @@ def analyze(symbol):
 
 @app.route('/api/top-stocks')
 def top_stocks():
-    return jsonify([{'code': '600000', 'name': '测试', 'signal': '买入', 'score': 35}])
+    try:
+        url = 'https://push2.eastmoney.com/api/qt/clist/get'
+        params = {"pn": 1, "pz": 30, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f2,f3"}
+        resp = requests.get(url, params=params, timeout=10)
+        data = resp.json()
+        stocks = data.get("data", {}).get("diff", [])[:20]
+    except:
+        stocks = []
+    
+    results = []
+    for s in stocks:
+        try:
+            code = s['f12']
+            klines = get_klines(code)
+            if klines and len(klines) >= 20:
+                closes = [float(k.split(',')[2]) for k in klines]
+                highs = [float(k.split(',')[3]) for k in klines]
+                lows = [float(k.split(',')[4]) for k in klines]
+                volumes = [float(k.split(',')[5]) for k in klines]
+                
+                # WR
+                h14, l14 = max(highs[-14:]), min(lows[-14:])
+                wr = 100 * (closes[-1] - l14) / (h14 - l14) if h14 != l14 else 50
+                
+                # MA
+                ma5, ma10, ma20 = sum(closes[-5:])/5, sum(closes[-10:])/10, sum(closes[-20:])/20
+                ma多头 = 1 if ma5 > ma10 > ma20 else 0
+                
+                # 资金
+                v5 = sum(volumes[-5:])/5
+                change = (closes[-1] - closes[-2]) / closes[-2] * 100
+                zijing = 1 if volumes[-1] > v5 * 1.3 and change > 0 else 0
+                
+                # 评分
+                score = 0
+                reasons = []
+                if ma多头: score += 20; reasons.append("均线多头")
+                if wr < 20: score += 12; reasons.append("WR超卖")
+                if zijing: score += 15; reasons.append("资金流入")
+                
+                signal = "买入" if score >= 20 else "加仓" if score >= 10 else "观望"
+                
+                results.append({
+                    'code': code,
+                    'name': s.get('f14', ''),
+                    'price': closes[-1],
+                    'change': s.get('f3', 0),
+                    'signal': signal,
+                    'score': score,
+                    'reasons': reasons[:2]
+                })
+        except:
+            continue
+    
+    results.sort(key=lambda x: -x['score'])
+    return jsonify(results[:10])
 
 @app.route('/api/limitup-pattern')
 def limitup():
-    return jsonify({'total': 30, '强烈买入': 5, '买入': 10, '加仓': 8})
+    try:
+        url = 'https://push2.eastmoney.com/api/qt/clist/get'
+        params = {"pn": 1, "pz": 50, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f3"}
+        resp = requests.get(url, params=params, timeout=10)
+        data = resp.json()
+        stocks = [d for d in data.get("data", {}).get("diff", []) if d.get("f3", 0) >= 9.5][:30]
+    except:
+        stocks = []
+    
+    stats = {"total": len(stocks), "强烈买入": 0, "买入": 0, "加仓": 0, "观望": 0, "减仓": 0}
+    
+    for s in stocks:
+        try:
+            klines = get_klines(s['f12'])
+            if klines and len(klines) >= 20:
+                closes = [float(k.split(',')[2]) for k in klines]
+                highs = [float(k.split(',')[3]) for k in klines]
+                lows = [float(k.split(',')[4]) for k in klines]
+                volumes = [float(k.split(',')[5]) for k in klines]
+                
+                h14, l14 = max(highs[-14:]), min(lows[-14:])
+                wr = 100 * (closes[-1] - l14) / (h14 - l14) if h14 != l14 else 50
+                
+                ma5, ma10, ma20 = sum(closes[-5:])/5, sum(closes[-10:])/10, sum(closes[-20:])/20
+                ma多头 = 1 if ma5 > ma10 > ma20 else 0
+                
+                v5 = sum(volumes[-5:])/5
+                change = (closes[-1] - closes[-2]) / closes[-2] * 100
+                zijing = 1 if volumes[-1] > v5 * 1.3 and change > 0 else 0
+                
+                score = 0
+                if ma多头: score += 20
+                if wr < 20: score += 12
+                if zijing: score += 15
+                
+                signal = "买入" if score >= 20 else "加仓" if score >= 10 else "观望"
+                stats[signal] = stats.get(signal, 0) + 1
+        except:
+            continue
+    
+    return jsonify(stats)
