@@ -66,7 +66,7 @@ def top_stocks():
         params = {"pn": 1, "pz": 30, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f2,f3"}
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
-        stocks = data.get("data", {}).get("diff", [])[:20]
+        stocks = data.get("data", {}).get("diff", [])[:10]
     except:
         stocks = []
     
@@ -116,7 +116,7 @@ def top_stocks():
             continue
     
     results.sort(key=lambda x: -x['score'])
-    return jsonify(results[:10])
+    return jsonify(results[:5])
 
 @app.route('/api/limitup-pattern')
 def limitup():
@@ -125,7 +125,7 @@ def limitup():
         params = {"pn": 1, "pz": 50, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f3"}
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
-        stocks = [d for d in data.get("data", {}).get("diff", []) if d.get("f3", 0) >= 9.5][:30]
+        stocks = [d for d in data.get("data", {}).get("diff", []) if d.get("f3", 0) >= 9.5][:10]
     except:
         stocks = []
     
