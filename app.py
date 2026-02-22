@@ -220,3 +220,81 @@ def limitup():
     }
     
     return jsonify(result)
+
+# === TOP股票推荐 ===
+@app.route('/api/top-stocks')
+def top_stocks():
+    try:
+        # 获取股票列表
+        url = 'https://push2.eastmoney.com/api/qt/clist/get'
+        params = {"pn": 1, "pz": 100, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f2,f3,f4,f5,f6"}
+        resp = requests.get(url, params=params, timeout=10)
+        data = resp.json()
+        stocks = data.get("data", {}).get("diff", [])[:100]
+    except:
+        stocks = []
+    
+    candidates = []
+    
+    for stock in stocks:
+        try:
+            code = stock['f12']
+            market = "1" if stock.get('f13') == 1 else "0"
+            klines = get_klines(code, 60)
+            
+            if not klines or len(klines) < 30:
+                continue
+            
+            closes = [float(k.split(',')[2]) for k in klines]
+            highs = [float(k.split(',')[3]) for k in klines]
+            lows = [float(k.split(',')[4]) for k in klines]
+            volumes = [float(k.split(',')[5]) for k in klines]
+            
+            # WR
+            wr_14 = 100 * (closes[-1] - min(lows[-14:])) / (max(highs[-14:]) - min(lows[-14:])) if max(highs[-14:]) != min(lows[-14:]) else 50
+            
+            # CCI
+            tp = [(highs[i] + lows[i] + closes[i]) / 3 for i in range(-14, 0)]
+            tp_avg = sum(tp) / 14
+            tp_dev = sum(abs(t - tp_avg) for t in tp) / 14
+            cci = (tp[-1] - tp_avg) / (0.015 * tp_dev) if tp_dev > 0 else 0
+            
+            # MA
+            ma5 = sum(closes[-5:]) / 5
+            ma10 = sum(closes[-10:]) / 10
+            ma20 = sum(closes[-20:]) / 20
+            
+            # 资金
+            vol_ma5 = sum(volumes[-5:]) / 5
+            price_change = (closes[-1] - closes[-2]) / closes[-2] * 100
+            zijing = 1 if volumes[-1] > vol_ma5 * 1.3 and price_change > 0 else 0
+            
+            # 新高
+            high_20 = max(highs[-20:])
+            xingaoy = 1 if closes[-1] >= high_20 * 0.95 else 0
+            
+            # 评分
+            score = 0
+            if wr_14 <= 20: score += 15
+            if cci < -80: score += 15
+            if ma5 > ma10 > ma20: score += 20
+            if zijing: score += 15
+            if xingaoy: score += 10
+            
+            candidates.append({
+                'code': code,
+                'name': stock.get('f14', ''),
+                'price': closes[-1],
+                'change': price_change,
+                'score': score,
+                'wr': wr_14,
+                'cci': cci,
+                'zijing': zijing,
+                'xingaoy': xingaoy
+            })
+        except:
+            pass
+    
+    # 排序取TOP20
+    candidates.sort(key=lambda x: -x['score'])
+    return jsonify(candidates[:20])
