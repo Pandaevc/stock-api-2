@@ -168,10 +168,10 @@ def analyze(symbol):
 def top_stocks():
     try:
         url = 'https://push2.eastmoney.com/api/qt/clist/get'
-        params = {"pn": 1, "pz": 20, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f2,f3"}
+        params = {"pn": 1, "pz": 10, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f2,f3"}
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
-        stocks = data.get("data", {}).get("diff", [])[:15]
+        stocks = data.get("data", {}).get("diff", [])[:8]
     except:
         stocks = []
     
@@ -190,7 +190,7 @@ def top_stocks():
                     'change': s.get('f3', 0),
                     'signal': signal,
                     'score': score,
-                    'reasons': reasons[:3]
+                    'reasons': reasons[:8]
                 })
         except:
             continue
@@ -202,10 +202,10 @@ def top_stocks():
 def limitup():
     try:
         url = 'https://push2.eastmoney.com/api/qt/clist/get'
-        params = {"pn": 1, "pz": 50, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f3"}
+        params = {"pn": 1, "pz": 10, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f3"}
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
-        stocks = [d for d in data.get("data", {}).get("diff", []) if d.get("f3", 0) >= 9.5][:20]
+        stocks = [d for d in data.get("data", {}).get("diff", []) if d.get("f3", 0) >= 9.5][:8]
     except:
         stocks = []
     
@@ -228,10 +228,10 @@ def scan_all():
     """扫描所有A股，返回各信号统计"""
     try:
         url = 'https://push2.eastmoney.com/api/qt/clist/get'
-        params = {"pn": 1, "pz": 50, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f2,f3"}
+        params = {"pn": 1, "pz": 10, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f2,f3"}
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
-        stocks = data.get("data", {}).get("diff", [])[:50]
+        stocks = data.get("data", {}).get("diff", [])[:8]
     except:
         stocks = []
     
