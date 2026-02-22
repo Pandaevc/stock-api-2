@@ -22,7 +22,7 @@ def get_klines(symbol, days=120):
     return None
 
 def calculate_wr(klines):
-    """计算威廉指标 - 机构算法"""
+    """计算威廉指标 - 机构算法 (0-100范围)"""
     if len(klines) < 30:
         return None
     
@@ -32,25 +32,25 @@ def calculate_wr(klines):
     
     n1, n2 = 14, 28
     
-    # 短期WR
+    # 短期WR (0-100范围)
     highest_high = max(highs[-n1:])
     lowest_low = min(lows[-n1:])
-    wr_short = -100 * (highest_high - closes[-1]) / (highest_high - lowest_low) if highest_high != lowest_low else -50
+    wr_short = 100 * (closes[-1] - lowest_low) / (highest_high - lowest_low) if highest_high != lowest_low else 50
     
     # 中期WR (10日)
     highest_high_mid = max(highs[-10:])
     lowest_low_mid = min(lows[-10:])
-    wr_mid = -100 * (highest_high_mid - closes[-1]) / (highest_high_mid - lowest_low_mid) if highest_high_mid != lowest_low_mid else -50
+    wr_mid = 100 * (closes[-1] - lowest_low_mid) / (highest_high_mid - lowest_low_mid) if highest_high_mid != lowest_low_mid else 50
     
     # 中长期WR (20日)
     highest_high_long = max(highs[-20:])
     lowest_low_long = min(lows[-20:])
-    wr_long_mid = -100 * (highest_high_long - closes[-1]) / (highest_high_long - lowest_low_long) if highest_high_long != lowest_low_long else -50
+    wr_long_mid = 100 * (closes[-1] - lowest_low_long) / (highest_high_long - lowest_low_long) if highest_high_long != lowest_low_long else 50
     
     # 长期WR (28日)
     highest_high_extra = max(highs[-n2:])
     lowest_low_extra = min(lows[-n2:])
-    wr_long = -100 * (highest_high_extra - closes[-1]) / (highest_high_extra - lowest_low_extra) if highest_high_extra != lowest_low_extra else -50
+    wr_long = 100 * (closes[-1] - lowest_low_extra) / (highest_high_extra - lowest_low_extra) if highest_high_extra != lowest_low_extra else 50
     
     return {
         'wr_short': wr_short,
@@ -107,12 +107,12 @@ def get_buy_signals(klines):
         score += 8
     
     # 白穿红线买 (短期上穿长期且长期<20)
-    if wr['wr_short'] > wr['wr_long'] and wr['wr_long'] < 20:
+    if wr['wr_short'] > wr['wr_long'] and wr['wr_long'] < 20 and wr['wr_short'] <= 80:
         signals.append("白穿红线买")
         score += 7
     
     # 白穿黄线买 (短期上穿中期且中期<30)
-    if wr['wr_short'] > wr['wr_mid'] and wr['wr_mid'] < 30:
+    if wr['wr_short'] > wr['wr_mid'] and wr['wr_mid'] < 30 and wr['wr_short'] <= 80:
         signals.append("白穿黄线买")
         score += 5
     
