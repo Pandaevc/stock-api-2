@@ -2,42 +2,12 @@ from flask import Flask, jsonify, request
 import requests
 import json
 import os
+import redis
 
 app = Flask(__name__)
 
-# 简单的内存存储（Vercel会重置，需要持久化）
-# 使用GitHub Gist作为简单数据库
-GIST_ID = None  # 需要创建一个GitHub Gist来存储数据
-
-# 内存存储（临时）
-db = {
-    "portfolio": [],
-    "picks": [],
-    "settings": {}
-}
-
-def save_db():
-    """保存到GitHub Gist"""
-    global db
-    if GIST_ID:
-        try:
-            url = f"https://api.github.com/gists/{GIST_ID}"
-            data = {"description": "Stock DB", "public": False, "files": {"stock_db.json": {"content": json.dumps(db)}}}
-            requests.patch(url, json=data, headers={"Authorization": f"token {os.environ.get('GITHUB_TOKEN', '')}"})
-        except:
-            pass
-
-def load_db():
-    """从GitHub Gist加载"""
-    global db
-    if GIST_ID:
-        try:
-            url = f"https://api.github.com/gists/{GIST_ID}"
-            resp = requests.get(url)
-            if resp.status_code == 200:
-                db = json.loads(resp.json()["files"]["stock_db.json"]["content"])
-        except:
-            pass
+# Vercel KV Redis
+kv = redis.from_url(os.environ.get('KV_REST_API_URL', ''), decode_responses=True)
 
 @app.after_request
 def add_cors(response):
@@ -47,31 +17,36 @@ def add_cors(response):
 # === 持仓管理 ===
 @app.route('/api/portfolio', methods=['GET'])
 def get_portfolio():
-    return jsonify(db.get("portfolio", []))
+    data = kv.get('portfolio')
+    return jsonify(json.loads(data) if data else [])
 
 @app.route('/api/portfolio', methods=['POST'])
 def add_portfolio():
     data = request.json
-    db.setdefault("portfolio", []).append(data)
-    save_db()
+    portfolio = json.loads(kv.get('portfolio') or '[]')
+    portfolio.append(data)
+    kv.set('portfolio', json.dumps(portfolio))
     return jsonify({"success": True})
 
 @app.route('/api/portfolio/<code>', methods=['DELETE'])
 def delete_portfolio(code):
-    db["portfolio"] = [p for p in db.get("portfolio", []) if p.get("code") != code]
-    save_db()
+    portfolio = json.loads(kv.get('portfolio') or '[]')
+    portfolio = [p for p in portfolio if p.get("code") != code]
+    kv.set('portfolio', json.dumps(portfolio))
     return jsonify({"success": True})
 
 # === 股票精选 ===
 @app.route('/api/picks', methods=['GET'])
 def get_picks():
-    return jsonify(db.get("picks", []))
+    data = kv.get('picks')
+    return jsonify(json.loads(data) if data else [])
 
 @app.route('/api/picks', methods=['POST'])
 def add_pick():
     data = request.json
-    db.setdefault("picks", []).append(data)
-    save_db()
+    picks = json.loads(kv.get('picks') or '[]')
+    picks.append(data)
+    kv.set('picks', json.dumps(picks))
     return jsonify({"success": True})
 
 # === 股票分析 ===
@@ -93,18 +68,13 @@ def analyze(symbol):
     klines = get_kline(symbol)
     if not klines:
         return jsonify({'error': '无法获取数据'})
-    
     closes = [float(k.split(',')[2]) for k in klines[-20:]]
-    ma5 = sum(closes[-5:]) / 5
-    ma10 = sum(closes[-10:]) / 10
-    ma20 = sum(closes[-20:]) / 20
-    
     return jsonify({
         'symbol': symbol, 
         'price': float(klines[-1].split(',')[2]), 
-        'ma5': ma5, 
-        'ma10': ma10, 
-        'ma20': ma20
+        'ma5': sum(closes[-5:]) / 5, 
+        'ma10': sum(closes[-10:]) / 10, 
+        'ma20': sum(closes[-20:]) / 20
     })
 
 # === 涨停模式分析 ===
@@ -136,10 +106,8 @@ def limitup():
                     ma10 = sum(closes[-10:]) / 10
                     yes_vol = float(klines[-2].split(',')[5])
                     vol_5avg = sum([float(k.split(',')[5]) for k in klines[-6:-1]]) / 5
-                    if yes_vol > vol_5avg * 1.2:
-                        volume_up += 1
-                    if ma5 > ma10:
-                        ma_golden += 1
+                    if yes_vol > vol_5avg * 1.2: volume_up += 1
+                    if ma5 > ma10: ma_golden += 1
                     total += 1
         except:
             pass
