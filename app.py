@@ -21,213 +21,156 @@ def get_klines(symbol, days=120):
         pass
     return None
 
-def calculate_wr(klines):
-    """计算威廉指标 - 机构算法 (0-100范围)"""
-    if len(klines) < 30:
-        return None
-    
+def calculate_all(klines):
+    """计算所有指标"""
+    import numpy as np
     closes = [float(k.split(',')[2]) for k in klines]
     highs = [float(k.split(',')[3]) for k in klines]
     lows = [float(k.split(',')[4]) for k in klines]
+    opens = [float(k.split(',')[1]) for k in klines]
+    volumes = [float(k.split(',')[5]) for k in klines]
     
-    n1, n2 = 14, 28
+    ind = {}
     
-    # 短期WR (0-100范围)
-    highest_high = max(highs[-n1:])
-    lowest_low = min(lows[-n1:])
-    wr_short = 100 * (closes[-1] - lowest_low) / (highest_high - lowest_low) if highest_high != lowest_low else 50
+    # WR
+    for n in [14, 10]:
+        h = max(highs[-n:])
+        l = min(lows[-n:])
+        ind[f'wr_{n}'] = 100 * (closes[-1] - l) / (h - l) if h != l else 50
     
-    # 中期WR (10日)
-    highest_high_mid = max(highs[-10:])
-    lowest_low_mid = min(lows[-10:])
-    wr_mid = 100 * (closes[-1] - lowest_low_mid) / (highest_high_mid - lowest_low_mid) if highest_high_mid != lowest_low_mid else 50
-    
-    # 中长期WR (20日)
-    highest_high_long = max(highs[-20:])
-    lowest_low_long = min(lows[-20:])
-    wr_long_mid = 100 * (closes[-1] - lowest_low_long) / (highest_high_long - lowest_low_long) if highest_high_long != lowest_low_long else 50
-    
-    # 长期WR (28日)
-    highest_high_extra = max(highs[-n2:])
-    lowest_low_extra = min(lows[-n2:])
-    wr_long = 100 * (closes[-1] - lowest_low_extra) / (highest_high_extra - lowest_low_extra) if highest_high_extra != lowest_low_extra else 50
-    
-    return {
-        'wr_short': wr_short,
-        'wr_mid': wr_mid,
-        'wr_long_mid': wr_long_mid,
-        'wr_long': wr_long
-    }
-
-def calculate_ma(klines):
-    """计算均线"""
-    if len(klines) < 20:
-        return None
-    closes = [float(k.split(',')[2]) for k in klines]
-    return {
-        'ma5': sum(closes[-5:]) / 5,
-        'ma10': sum(closes[-10:]) / 10,
-        'ma20': sum(closes[-20:]) / 20
-    }
-
-def calculate_cci(klines):
-    """计算CCI"""
-    if len(klines) < 14:
-        return None
-    highs = [float(k.split(',')[3]) for k in klines]
-    lows = [float(k.split(',')[4]) for k in klines]
-    closes = [float(k.split(',')[2]) for k in klines]
-    
+    # CCI
     tp = [(highs[i] + lows[i] + closes[i]) / 3 for i in range(-14, 0)]
     tp_avg = sum(tp) / 14
     tp_dev = sum(abs(t - tp_avg) for t in tp) / 14
-    cci = (tp[-1] - tp_avg) / (0.015 * tp_dev) if tp_dev > 0 else 0
-    return cci
+    ind['cci'] = (tp[-1] - tp_avg) / (0.015 * tp_dev) if tp_dev > 0 else 0
+    
+    # 均线
+    ind['ma5'] = sum(closes[-5:]) / 5
+    ind['ma10'] = sum(closes[-10:]) / 10
+    ind['ma20'] = sum(closes[-20:]) / 20
+    ind['ma多头'] = 1 if ind['ma5'] > ind['ma10'] > ind['ma20'] else 0
+    ind['ma空头'] = 1 if ind['ma5'] < ind['ma10'] < ind['ma20'] else 0
+    
+    # RSI
+    if len(closes) >= 14:
+        delta = [closes[i] - closes[i-1] for i in range(1, 14)]
+        gain = [d if d > 0 else 0 for d in delta]
+        loss = [-d if d < 0 else 0 for d in delta]
+        avg_gain = sum(gain) / 14
+        avg_loss = sum(loss) / 14
+        rs = avg_gain / avg_loss if avg_loss > 0 else 100
+        ind['rsi'] = 100 - (100 / (1 + rs))
+    
+    # 资金
+    vol_ma5 = sum(volumes[-5:]) / 5
+    price_change = (closes[-1] - closes[-2]) / closes[-2] * 100
+    ind['放量上涨'] = 1 if volumes[-1] > vol_ma5 * 1.3 and price_change > 0 else 0
+    ind['资金流入'] = 1 if volumes[-1] > vol_ma5 * 1.3 and price_change > 0 else 0
+    ind['资金强势流入'] = 1 if volumes[-1] > vol_ma5 * 1.5 and price_change > 2 else 0
+    
+    # 位置
+    high20 = max(highs[-20:])
+    ind['接近新高'] = 1 if closes[-1] >= high20 * 0.95 else 0
+    ind['突破'] = 1 if closes[-1] > max(highs[-5:-1]) else 0
+    
+    return ind
 
-def get_buy_signals(klines):
-    """根据机构算法获取买入信号"""
-    wr = calculate_wr(klines)
-    ma = calculate_ma(klines)
-    cci = calculate_cci(klines)
-    
-    if not wr:
-        return {"signals": [], "score": 0, "recommend": "观望"}
-    
-    signals = []
+def comprehensive_score(ind):
+    """综合评分"""
     score = 0
+    reasons = []
     
-    # 四线归零买 (WR all <= 6)
-    if wr['wr_short'] <= 6 and wr['wr_mid'] <= 6 and wr['wr_long_mid'] <= 6 and wr['wr_long'] <= 6:
-        signals.append("四线归零买")
+    # 均线
+    if ind.get('ma多头'):
+        score += 20
+        reasons.append("均线多头排列")
+    if ind.get('ma空头'):
+        score -= 15
+        reasons.append("均线空头排列")
+    
+    # WR
+    if ind.get('wr_14', 50) <= 20:
+        score += 12
+        reasons.append("WR超卖")
+    elif ind.get('wr_14', 50) >= 80:
+        score -= 8
+        reasons.append("WR超买")
+    
+    # CCI
+    if ind.get('cci', 0) < -100:
         score += 10
+        reasons.append("CCI超卖反弹")
+    elif ind.get('cci', 0) > 100:
+        score -= 6
+        reasons.append("CCI超买")
     
-    # 白线下20买 (WR短<=20 AND WR长>=60)
-    if wr['wr_short'] <= 20 and wr['wr_long'] >= 60:
-        signals.append("白线下20买")
+    # RSI
+    if ind.get('rsi', 50) < 30:
         score += 8
+        reasons.append("RSI超卖")
+    elif ind.get('rsi', 50) > 70:
+        score -= 5
+        reasons.append("RSI超买")
     
-    # 白穿红线买 (短期上穿长期且长期<20)
-    if wr['wr_short'] > wr['wr_long'] and wr['wr_long'] < 20 and wr['wr_short'] <= 80:
-        signals.append("白穿红线买")
-        score += 7
+    # 资金
+    if ind.get('资金强势流入'):
+        score += 15
+        reasons.append("资金强势流入")
+    elif ind.get('资金流入'):
+        score += 8
+        reasons.append("资金流入")
     
-    # 白穿黄线买 (短期上穿中期且中期<30)
-    if wr['wr_short'] > wr['wr_mid'] and wr['wr_mid'] < 30 and wr['wr_short'] <= 80:
-        signals.append("白穿黄线买")
-        score += 5
+    # 量价
+    if ind.get('放量上涨'):
+        score += 10
+        reasons.append("放量上涨")
     
-    # CCI超卖反弹
-    if cci and cci < -100:
-        signals.append("CCI超卖反弹")
-        score += 3
+    # 位置
+    if ind.get('突破'):
+        score += 15
+        reasons.append("放量突破")
+    elif ind.get('接近新高'):
+        score += 10
+        reasons.append("接近新高")
     
-    # 均线多头排列
-    if ma and ma['ma5'] > ma['ma10'] > ma['ma20']:
-        signals.append("均线多头")
-        score += 3
-    
-    # 推荐
-    if score >= 8:
-        recommend = "买入"
-    elif score >= 4:
-        recommend = "加仓"
+    # 评级
+    if score >= 35:
+        return "强烈买入", score, reasons
+    elif score >= 20:
+        return "买入", score, reasons
+    elif score >= 8:
+        return "加仓", score, reasons
+    elif score >= -2:
+        return "观望", score, reasons
     else:
-        recommend = "观望"
-    
-    return {
-        "signals": signals,
-        "score": score,
-        "recommend": recommend,
-        "wr": wr,
-        "cci": cci
-    }
+        return "减仓", score, reasons
 
-# === 威廉指标分析 ===
+# === 分析单只股票 ===
 @app.route('/api/analyze/<symbol>')
 def analyze(symbol):
     klines = get_klines(symbol, 60)
     if not klines:
         return jsonify({'error': '无法获取数据'})
     
-    signals = get_buy_signals(klines)
+    ind = calculate_all(klines)
+    signal, score, reasons = comprehensive_score(ind)
+    closes = [float(k.split(',')[2]) for k in klines]
+    
     return jsonify({
         'symbol': symbol,
-        'price': float(klines[-1].split(',')[2]),
-        'signals': signals
+        'price': closes[-1],
+        'signal': signal,
+        'score': score,
+        'reasons': reasons,
+        'indicators': ind
     })
-
-# === 涨停股模式分析 - 大规模测试 ===
-@app.route('/api/limitup-pattern')
-def limitup():
-    try:
-        # 获取更多涨停股
-        url = 'https://push2.eastmoney.com/api/qt/clist/get'
-        params = {"pn": 1, "pz": 200, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f3"}
-        resp = requests.get(url, params=params, timeout=10)
-        data = resp.json()
-        stocks = [d for d in data.get("data", {}).get("diff", []) if d.get("f3", 0) >= 9.5][:30]  # 增加到100只
-    except:
-        stocks = []
-    
-    # 统计各指标
-    stats = {
-        'four_line_zero': 0,  # 四线归零
-        'white_under_20': 0,   # 白线下20
-        'white_cross_red': 0, # 白穿红线
-        'white_cross_yellow': 0, # 白穿黄线
-        'cci_oversold': 0,    # CCI超卖
-        'ma_golden': 0,       # 均线多头
-        'total': 0
-    }
-    
-    for stock in stocks:
-        try:
-            code = stock['f12']
-            market = "1" if stock.get('f13') == 1 else "0"
-            klines = get_klines(code, 60)
-            
-            if klines and len(klines) >= 30:
-                signals = get_buy_signals(klines)
-                sig_list = signals.get('signals', [])
-                
-                if "四线归零买" in sig_list: stats['four_line_zero'] += 1
-                if "白线下20买" in sig_list: stats['white_under_20'] += 1
-                if "白穿红线买" in sig_list: stats['white_cross_red'] += 1
-                if "白穿黄线买" in sig_list: stats['white_cross_yellow'] += 1
-                if "CCI超卖反弹" in sig_list: stats['cci_oversold'] += 1
-                if "均线多头" in sig_list: stats['ma_golden'] += 1
-                
-                stats['total'] += 1
-        except:
-            pass
-    
-    # 计算百分比
-    t = stats['total']
-    result = {
-        'total': t,
-        'four_line_zero': stats['four_line_zero'],
-        'four_line_zero_pct': round(stats['four_line_zero']/t*100, 1) if t else 0,
-        'white_under_20': stats['white_under_20'],
-        'white_under_20_pct': round(stats['white_under_20']/t*100, 1) if t else 0,
-        'white_cross_red': stats['white_cross_red'],
-        'white_cross_red_pct': round(stats['white_cross_red']/t*100, 1) if t else 0,
-        'white_cross_yellow': stats['white_cross_yellow'],
-        'white_cross_yellow_pct': round(stats['white_cross_yellow']/t*100, 1) if t else 0,
-        'cci_oversold': stats['cci_oversold'],
-        'cci_oversold_pct': round(stats['cci_oversold']/t*100, 1) if t else 0,
-        'ma_golden': stats['ma_golden'],
-        'ma_golden_pct': round(stats['ma_golden']/t*100, 1) if t else 0
-    }
-    
-    return jsonify(result)
 
 # === TOP股票推荐 ===
 @app.route('/api/top-stocks')
 def top_stocks():
     try:
-        # 获取股票列表
         url = 'https://push2.eastmoney.com/api/qt/clist/get'
-        params = {"pn": 1, "pz": 100, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f2,f3,f4,f5,f6"}
+        params = {"pn": 1, "pz": 50, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f2,f3,f4,f5,f6"}
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
         stocks = data.get("data", {}).get("diff", [])[:30]
@@ -239,62 +182,52 @@ def top_stocks():
     for stock in stocks:
         try:
             code = stock['f12']
-            market = "1" if stock.get('f13') == 1 else "0"
             klines = get_klines(code, 60)
-            
             if not klines or len(klines) < 30:
                 continue
             
+            ind = calculate_all(klines)
+            signal, score, reasons = comprehensive_score(ind)
             closes = [float(k.split(',')[2]) for k in klines]
-            highs = [float(k.split(',')[3]) for k in klines]
-            lows = [float(k.split(',')[4]) for k in klines]
-            volumes = [float(k.split(',')[5]) for k in klines]
-            
-            # WR
-            wr_14 = 100 * (closes[-1] - min(lows[-14:])) / (max(highs[-14:]) - min(lows[-14:])) if max(highs[-14:]) != min(lows[-14:]) else 50
-            
-            # CCI
-            tp = [(highs[i] + lows[i] + closes[i]) / 3 for i in range(-14, 0)]
-            tp_avg = sum(tp) / 14
-            tp_dev = sum(abs(t - tp_avg) for t in tp) / 14
-            cci = (tp[-1] - tp_avg) / (0.015 * tp_dev) if tp_dev > 0 else 0
-            
-            # MA
-            ma5 = sum(closes[-5:]) / 5
-            ma10 = sum(closes[-10:]) / 10
-            ma20 = sum(closes[-20:]) / 20
-            
-            # 资金
-            vol_ma5 = sum(volumes[-5:]) / 5
-            price_change = (closes[-1] - closes[-2]) / closes[-2] * 100
-            zijing = 1 if volumes[-1] > vol_ma5 * 1.3 and price_change > 0 else 0
-            
-            # 新高
-            high_20 = max(highs[-20:])
-            xingaoy = 1 if closes[-1] >= high_20 * 0.95 else 0
-            
-            # 评分
-            score = 0
-            if wr_14 <= 20: score += 15
-            if cci < -80: score += 15
-            if ma5 > ma10 > ma20: score += 20
-            if zijing: score += 15
-            if xingaoy: score += 10
             
             candidates.append({
                 'code': code,
                 'name': stock.get('f14', ''),
                 'price': closes[-1],
-                'change': price_change,
+                'change': stock.get('f3', 0),
+                'signal': signal,
                 'score': score,
-                'wr': wr_14,
-                'cci': cci,
-                'zijing': zijing,
-                'xingaoy': xingaoy
+                'reasons': reasons[:3]
             })
+        except:
+            continue
+    
+    candidates.sort(key=lambda x: -x['score'])
+    return jsonify(candidates[:15])
+
+# === 涨停模式分析 ===
+@app.route('/api/limitup-pattern')
+def limitup():
+    try:
+        url = 'https://push2.eastmoney.com/api/qt/clist/get'
+        params = {"pn": 1, "pz": 50, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f3"}
+        resp = requests.get(url, params=params, timeout=10)
+        data = resp.json()
+        stocks = [d for d in data.get("data", {}).get("diff", []) if d.get("f3", 0) >= 9.5][:30]
+    except:
+        stocks = []
+    
+    stats = {"total": len(stocks), "强烈买入": 0, "买入": 0, "加仓": 0, "观望": 0, "减仓": 0}
+    
+    for stock in stocks:
+        try:
+            code = stock['f12']
+            klines = get_klines(code, 60)
+            if klines and len(klines) >= 30:
+                ind = calculate_all(klines)
+                signal, score, reasons = comprehensive_score(ind)
+                stats[signal] = stats.get(signal, 0) + 1
         except:
             pass
     
-    # 排序取TOP20
-    candidates.sort(key=lambda x: -x['score'])
-    return jsonify(candidates[:20])
+    return jsonify(stats)
