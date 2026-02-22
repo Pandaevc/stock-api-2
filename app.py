@@ -1,13 +1,80 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import requests
+import json
+import os
 
 app = Flask(__name__)
+
+# 简单的内存存储（Vercel会重置，需要持久化）
+# 使用GitHub Gist作为简单数据库
+GIST_ID = None  # 需要创建一个GitHub Gist来存储数据
+
+# 内存存储（临时）
+db = {
+    "portfolio": [],
+    "picks": [],
+    "settings": {}
+}
+
+def save_db():
+    """保存到GitHub Gist"""
+    global db
+    if GIST_ID:
+        try:
+            url = f"https://api.github.com/gists/{GIST_ID}"
+            data = {"description": "Stock DB", "public": False, "files": {"stock_db.json": {"content": json.dumps(db)}}}
+            requests.patch(url, json=data, headers={"Authorization": f"token {os.environ.get('GITHUB_TOKEN', '')}"})
+        except:
+            pass
+
+def load_db():
+    """从GitHub Gist加载"""
+    global db
+    if GIST_ID:
+        try:
+            url = f"https://api.github.com/gists/{GIST_ID}"
+            resp = requests.get(url)
+            if resp.status_code == 200:
+                db = json.loads(resp.json()["files"]["stock_db.json"]["content"])
+        except:
+            pass
 
 @app.after_request
 def add_cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     return response
 
+# === 持仓管理 ===
+@app.route('/api/portfolio', methods=['GET'])
+def get_portfolio():
+    return jsonify(db.get("portfolio", []))
+
+@app.route('/api/portfolio', methods=['POST'])
+def add_portfolio():
+    data = request.json
+    db.setdefault("portfolio", []).append(data)
+    save_db()
+    return jsonify({"success": True})
+
+@app.route('/api/portfolio/<code>', methods=['DELETE'])
+def delete_portfolio(code):
+    db["portfolio"] = [p for p in db.get("portfolio", []) if p.get("code") != code]
+    save_db()
+    return jsonify({"success": True})
+
+# === 股票精选 ===
+@app.route('/api/picks', methods=['GET'])
+def get_picks():
+    return jsonify(db.get("picks", []))
+
+@app.route('/api/picks', methods=['POST'])
+def add_pick():
+    data = request.json
+    db.setdefault("picks", []).append(data)
+    save_db()
+    return jsonify({"success": True})
+
+# === 股票分析 ===
 def get_kline(symbol):
     try:
         secid = "1." + symbol if symbol.startswith('6') else "0." + symbol
@@ -40,6 +107,7 @@ def analyze(symbol):
         'ma20': ma20
     })
 
+# === 涨停模式分析 ===
 @app.route('/api/limitup-pattern')
 def limitup():
     try:
