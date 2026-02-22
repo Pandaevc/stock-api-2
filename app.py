@@ -165,7 +165,7 @@ def limitup():
         params = {"pn": 1, "pz": 200, "po": 1, "np": 1, "fltt": 2, "invt": 2, "fid": "f3", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", "fields": "f12,f13,f14,f3"}
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
-        stocks = [d for d in data.get("data", {}).get("diff", []) if d.get("f3", 0) >= 9.5][:100]  # 增加到100只
+        stocks = [d for d in data.get("data", {}).get("diff", []) if d.get("f3", 0) >= 9.5][:30]  # 增加到100只
     except:
         stocks = []
     
