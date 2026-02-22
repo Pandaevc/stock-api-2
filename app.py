@@ -1,53 +1,12 @@
 from flask import Flask, jsonify, request
 import requests
-import json
-import os
-import redis
 
 app = Flask(__name__)
-
-# Vercel KV Redis
-kv = redis.from_url(os.environ.get('KV_REST_API_URL', ''), decode_responses=True)
 
 @app.after_request
 def add_cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     return response
-
-# === 持仓管理 ===
-@app.route('/api/portfolio', methods=['GET'])
-def get_portfolio():
-    data = kv.get('portfolio')
-    return jsonify(json.loads(data) if data else [])
-
-@app.route('/api/portfolio', methods=['POST'])
-def add_portfolio():
-    data = request.json
-    portfolio = json.loads(kv.get('portfolio') or '[]')
-    portfolio.append(data)
-    kv.set('portfolio', json.dumps(portfolio))
-    return jsonify({"success": True})
-
-@app.route('/api/portfolio/<code>', methods=['DELETE'])
-def delete_portfolio(code):
-    portfolio = json.loads(kv.get('portfolio') or '[]')
-    portfolio = [p for p in portfolio if p.get("code") != code]
-    kv.set('portfolio', json.dumps(portfolio))
-    return jsonify({"success": True})
-
-# === 股票精选 ===
-@app.route('/api/picks', methods=['GET'])
-def get_picks():
-    data = kv.get('picks')
-    return jsonify(json.loads(data) if data else [])
-
-@app.route('/api/picks', methods=['POST'])
-def add_pick():
-    data = request.json
-    picks = json.loads(kv.get('picks') or '[]')
-    picks.append(data)
-    kv.set('picks', json.dumps(picks))
-    return jsonify({"success": True})
 
 # === 股票分析 ===
 def get_kline(symbol):
